@@ -181,7 +181,7 @@ class BuilderTest extends Base
         });
 
         $this->assertTrue($results->first()->relationLoaded('posts'));
-        $this->assertEquals(1, $results->first()->posts->count());
+        $this->assertEquals(self::TOTAL_POSTS_FIRST_USER, $results->first()->posts->count());
     }
 
     /** @test */
@@ -359,7 +359,12 @@ class BuilderTest extends Base
         $this->assertCount(3, $queries);
 
         $this->assertEquals(
-            'select * from `posts` where `posts`.`user_id` = ? and `posts`.`user_id` is not null and `posts`.`id` in (1) limit 16 offset 0',
+            'select `posts`.`id` from `posts` where `posts`.`user_id` = ? and `posts`.`user_id` is not null limit 16 offset 0',
+            $queries[1]['query']
+        );
+
+        $this->assertEquals(
+            'select * from `posts` where `posts`.`id` in (1) limit 16 offset 0',
             $queries[2]['query']
         );
 
@@ -417,10 +422,119 @@ class BuilderTest extends Base
                 ->fastPaginate(2);
         });
 
-        $this->assertEquals($queries[0]['query'],
-            'select count(*) as aggregate from ((select * from `users` where `id` < ?) union all (select * from `users` where `id` > ?)) as `temp_table`');
+        $this->assertEquals('select count(*) as aggregate from ((select * from `users` where `id` < ?) union all (select * from `users` where `id` > ?)) as `temp_table`',
+            $queries[0]['query']);
 
-        $this->assertEquals($queries[1]['query'],
-            '(select * from `users` where `id` < ?) union all (select * from `users` where `id` > ?) limit 2 offset 0');
+        $this->assertEquals('(select * from `users` where `id` < ?) union all (select * from `users` where `id` > ?) limit 2 offset 0',
+            $queries[1]['query']);
+    }
+
+    public function test_omit_wheres()
+    {
+        $queries = $this->withQueriesLogged(function () use (&$results) {
+            $results = User::query()
+                ->where('name', 'like', '%Person%')
+                ->fastPaginate();
+        });
+
+        $this->assertEquals('select `users`.`id` from `users` where `name` like ? limit 15 offset 0',
+            $queries[1]['query']);
+
+        $this->assertEquals('select * from `users` where `users`.`id` in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15) limit 16 offset 0',
+            $queries[2]['query']);
+    }
+
+    public function test_omit_wheres_disabled()
+    {
+        $queries = $this->withQueriesLogged(function () use (&$results) {
+            $options = [
+                'should_preserve_wheres' => true,
+            ];
+
+            $results = User::query()
+                ->where('name', 'like', '%Person%')
+                ->fastPaginate(15, ['*'], 'page', 1, $options);
+        });
+
+        $this->assertEquals('select `users`.`id` from `users` where `name` like ? limit 15 offset 0',
+            $queries[1]['query']);
+
+        $this->assertEquals('select * from `users` where `name` like ? and `users`.`id` in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15) limit 16 offset 0',
+            $queries[2]['query']);
+    }
+
+    public function test_preserve_wheres_with_join()
+    {
+        $queries = $this->withQueriesLogged(function () use (&$results) {
+            $results = User::query()
+                ->join('posts', 'posts.user_id', '=', 'users.id')
+                ->where('users.name', 'like', '%Person%')
+                ->fastPaginate();
+        });
+
+        $this->assertEquals('select `users`.`id` from `users` inner join `posts` on `posts`.`user_id` = `users`.`id` where `users`.`name` like ? limit 15 offset 0',
+            $queries[1]['query']);
+
+        $this->assertEquals('select * from `users` inner join `posts` on `posts`.`user_id` = `users`.`id` where `users`.`name` like ? and `users`.`id` in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15) limit 16 offset 0',
+            $queries[2]['query']);
+    }
+
+    public function test_omit_wheres_with_join_force()
+    {
+        $queries = $this->withQueriesLogged(function () use (&$results) {
+            $options = [
+                'should_omit_wheres' => true,
+            ];
+
+            $results = User::query()
+                ->join('posts', 'posts.user_id', '=', 'users.id')
+                ->where('users.name', 'like', '%Person%')
+                ->fastPaginate(15, ['*'], 'page', 1, $options);
+        });
+
+        $this->assertEquals('select `users`.`id` from `users` inner join `posts` on `posts`.`user_id` = `users`.`id` where `users`.`name` like ? limit 15 offset 0',
+            $queries[1]['query']);
+
+        $this->assertEquals('select * from `users` inner join `posts` on `posts`.`user_id` = `users`.`id` where `users`.`id` in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15) limit 16 offset 0',
+            $queries[2]['query']);
+    }
+
+    public function test_omit_joins()
+    {
+        $queries = $this->withQueriesLogged(function () use (&$results) {
+            $options = [
+                'should_omit_joins' => true,
+            ];
+
+            $results = User::query()
+                ->join('posts', 'posts.user_id', '=', 'users.id')
+                ->fastPaginate(15, ['*'], 'page', 1, $options);
+        });
+
+        $this->assertEquals('select `users`.`id` from `users` inner join `posts` on `posts`.`user_id` = `users`.`id` limit 15 offset 0',
+            $queries[1]['query']);
+
+        $this->assertEquals('select * from `users` where `users`.`id` in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15) limit 16 offset 0',
+            $queries[2]['query']);
+    }
+
+    public function test_omit_joins_with_where()
+    {
+        $queries = $this->withQueriesLogged(function () use (&$results) {
+            $options = [
+                'should_omit_joins' => true,
+            ];
+
+            $results = User::query()
+                ->join('posts', 'posts.user_id', '=', 'users.id')
+                ->where('users.name', 'like', '%Person%')
+                ->fastPaginate(15, ['*'], 'page', 1, $options);
+        });
+
+        $this->assertEquals('select `users`.`id` from `users` inner join `posts` on `posts`.`user_id` = `users`.`id` where `users`.`name` like ? limit 15 offset 0',
+            $queries[1]['query']);
+
+        $this->assertEquals('select * from `users` where `users`.`id` in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15) limit 16 offset 0',
+            $queries[2]['query']);
     }
 }
