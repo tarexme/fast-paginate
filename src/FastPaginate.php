@@ -37,7 +37,7 @@ class FastPaginate
 
     protected function paginate(string $paginationMethod, Closure $paginatorOutput)
     {
-        return function ($perPage = null, $columns = ['*'], $pageName = 'page', $page = null) use (
+        return function ($perPage = null, $columns = ['*'], $pageName = 'page', $page = null, $options = []) use (
             $paginationMethod,
             $paginatorOutput
         ) {
@@ -82,6 +82,8 @@ class FastPaginate
 
             // Get the key values from the records on the current page without mutating them.
             $ids = $paginator->getCollection()->map->getRawOriginal($key)->toArray();
+
+            FastPaginate::clearQueryAfterPaginationRetrieved($this, $options);
 
             if (in_array($model->getKeyType(), ['int', 'integer'])) {
                 $this->query->whereIntegerInRaw("$table.$key", $ids);
@@ -149,5 +151,39 @@ class FastPaginate
             ->unique()
             ->values()
             ->toArray();
+    }
+
+    /**
+     * Clears constraints from the query after pagination data retrieval.
+     * @param \Illuminate\Database\Query\Builder $builder
+     * @param array $options
+     * @return void
+     */
+    public static function clearQueryAfterPaginationRetrieved($builder, $options)
+    {
+        $shouldPreserveWheres = ($options['should_preserve_wheres'] ?? false) === true;
+        $shouldOmitWheres = ($options['should_omit_wheres'] ?? false) === true;
+        $shouldOmitJoins = ($options['should_omit_joins'] ?? false) === true;
+
+        $query = $builder->getQuery();
+
+        if ($shouldOmitJoins && $query->joins !== null) {
+            $query->joins = [];
+
+            if (isset($query->bindings['join'])) {
+                $query->bindings['join'] = [];
+            }
+        }
+
+        $shouldClearWheres = !$shouldPreserveWheres
+            && ($shouldOmitWheres || $query->joins === null || count($query->joins) === 0);
+
+        if ($shouldClearWheres) {
+            $query->wheres = [];
+
+            if (isset($query->bindings['where'])) {
+                $query->bindings['where'] = [];
+            }
+        }
     }
 }
