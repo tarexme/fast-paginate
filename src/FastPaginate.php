@@ -155,8 +155,9 @@ class FastPaginate
 
     /**
      * Clears constraints from the query after pagination data retrieval.
-     * @param \Illuminate\Database\Query\Builder $builder
-     * @param array $options
+     *
+     * @param  \Illuminate\Database\Query\Builder  $builder
+     * @param  array  $options
      * @return void
      */
     public static function clearQueryAfterPaginationRetrieved($builder, $options)
@@ -175,7 +176,7 @@ class FastPaginate
             }
         }
 
-        $shouldClearWheres = !$shouldPreserveWheres
+        $shouldClearWheres = ! $shouldPreserveWheres
             && ($shouldOmitWheres || $query->joins === null || count($query->joins) === 0);
 
         if ($shouldClearWheres) {
